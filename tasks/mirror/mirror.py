@@ -20,6 +20,7 @@ from tasks.base.back_init_menu import back_init_menu
 from tasks.base.make_enkephalin_module import make_enkephalin_module
 from tasks.base.retry import retry
 from tasks.battle import battle
+from tasks.battle.pinky_ryoshu import is_pinky_ryoshu_team_available, selected_sinner_count
 from tasks.event import event_handling
 from tasks.mirror.in_shop import Shop
 from tasks.mirror.reward_card import get_reward_card
@@ -71,6 +72,12 @@ class Mirror:
         self.observe_ego_gift_selected = team_setting.observe_ego_gift_selected  # 用户选择的观测EGO饰品列表
 
         self.defense_first_round = team_setting.defense_first_round  # 是否第一回合全员防御
+        self.pinky_ryoshu_specialization = (
+            team_setting.pinky_ryoshu_specialization and is_pinky_ryoshu_team_available(self.sinner_team)
+        )
+        self.pinky_ryoshu_selected_count = selected_sinner_count(self.sinner_team)
+        if team_setting.pinky_ryoshu_specialization and not self.pinky_ryoshu_specialization:
+            log.warning("小指良特化需要将良秀设置为1号位，本轮镜牢不启用该特化")
 
         self.start_time = time.time()
         self.first_battle = True  # 判断是否首次进入战斗，如果是则重新配队
@@ -341,23 +348,47 @@ class Mirror:
             if auto.find_element("battle/more_information_assets.png") or auto.find_element(
                 "battle/in_mirror_assets.png"
             ):
-                _, elapsed = self._time_call(battle.fight, self.avoid_skill_3, self.defense_first_round)
+                _, elapsed = self._time_call(
+                    battle.fight,
+                    self.avoid_skill_3,
+                    self.defense_first_round,
+                    pinky_ryoshu_specialization=self.pinky_ryoshu_specialization,
+                    pinky_ryoshu_selected_count=self.pinky_ryoshu_selected_count,
+                )
                 self.battle_total_time += elapsed
                 continue
             elif battle.identify_keyword_turn and self.LOOP_COUNT - main_loop_count < 5:
                 if auto.find_element("battle/turn_assets.png") or auto.find_element("battle/in_mirror_assets.png"):
-                    _, elapsed = self._time_call(battle.fight, self.avoid_skill_3, self.defense_first_round)
+                    _, elapsed = self._time_call(
+                        battle.fight,
+                        self.avoid_skill_3,
+                        self.defense_first_round,
+                        pinky_ryoshu_specialization=self.pinky_ryoshu_specialization,
+                        pinky_ryoshu_selected_count=self.pinky_ryoshu_selected_count,
+                    )
                     self.battle_total_time += elapsed
                     continue
             else:
                 turn_bbox = ImageUtils.get_bbox(ImageUtils.load_image("battle/turn_assets.png"))
                 turn_ocr_result = auto.find_text_element("turn", turn_bbox)
                 if turn_ocr_result is not False:
-                    _, elapsed = self._time_call(battle.fight, self.avoid_skill_3, self.defense_first_round)
+                    _, elapsed = self._time_call(
+                        battle.fight,
+                        self.avoid_skill_3,
+                        self.defense_first_round,
+                        pinky_ryoshu_specialization=self.pinky_ryoshu_specialization,
+                        pinky_ryoshu_selected_count=self.pinky_ryoshu_selected_count,
+                    )
                     self.battle_total_time += elapsed
                     continue
             if auto.find_element("battle/win_rate_card.png") and auto.find_element("battle/gear_right.png"):
-                _, elapsed = self._time_call(battle.fight, self.avoid_skill_3, self.defense_first_round)
+                _, elapsed = self._time_call(
+                    battle.fight,
+                    self.avoid_skill_3,
+                    self.defense_first_round,
+                    pinky_ryoshu_specialization=self.pinky_ryoshu_specialization,
+                    pinky_ryoshu_selected_count=self.pinky_ryoshu_selected_count,
+                )
                 self.battle_total_time += elapsed
                 continue
 

@@ -14,6 +14,7 @@ from module.logger import log
 from module.ocr import ocr
 from tasks import sins
 from tasks.base.retry import retry
+from tasks.battle.pinky_ryoshu import PinkyRyoshuBattleState
 from tasks.event import event_handling
 from utils.image_utils import ImageUtils
 from utils.utils import find_skill3
@@ -93,9 +94,29 @@ class Battle:
 
         return new_time
 
-    def _battle_operation(self, first_turn: bool, defense_first_round: bool, avoid_skill_3: bool):
+    def _battle_operation(
+        self,
+        first_turn: bool,
+        defense_first_round: bool,
+        avoid_skill_3: bool,
+        pinky_ryoshu_state: Optional[PinkyRyoshuBattleState] = None,
+    ):
         auto.mouse_click_blank()
-        if first_turn and defense_first_round and auto.find_element("battle/gear_left.png", threshold=0.9):
+        pinky_ryoshu_waiting = pinky_ryoshu_state is not None and pinky_ryoshu_state.should_use_ryoshu_defense()
+        pinky_ryoshu_normal_phase = pinky_ryoshu_state is not None and not pinky_ryoshu_waiting
+        if (
+            pinky_ryoshu_waiting
+            and auto.find_element("battle/gear_left.png", threshold=0.9)
+        ):
+            msg = "小指良特化：良秀守备，等待其他人格阵亡"
+            if self._defense_skill_slot(0) is False:
+                msg = "小指良特化：良秀守备失败，等待下次识别"
+        elif (
+            not pinky_ryoshu_normal_phase
+            and first_turn
+            and defense_first_round
+            and auto.find_element("battle/gear_left.png", threshold=0.9)
+        ):
             msg = "第一回合全员防御，开始战斗"
             if self._defense_this_round() is False:
                 defense_first_round = False
@@ -108,11 +129,15 @@ class Battle:
                 auto.key_press("p")
                 sleep(0.5)
                 auto.key_press("enter")
-        elif self.defense_all_time:
+        elif not pinky_ryoshu_normal_phase and self.defense_all_time:
             if auto.find_element("battle/gear_left.png", threshold=0.9):
                 msg = "使用全员防御模式开始战斗"
                 self._defense_this_round()
-        elif avoid_skill_3 and auto.find_element("battle/gear_left.png", threshold=0.9):
+        elif (
+            not pinky_ryoshu_normal_phase
+            and avoid_skill_3
+            and auto.find_element("battle/gear_left.png", threshold=0.9)
+        ):
             msg = "使用避免3技能模式开始战斗"
             if self._chain_battle() is False:
                 avoid_skill_3 = False
@@ -154,6 +179,8 @@ class Battle:
         defense_on_turn1=False,
         choice_event_handling=True,
         combat_count=1,
+        pinky_ryoshu_specialization=False,
+        pinky_ryoshu_selected_count=0,
     ):
         chance = self.INIT_CHANCE
         waiting = self._update_wait_time()
@@ -162,11 +189,16 @@ class Battle:
         in_mirror = False
         first_battle_reward = None
         event_chance = 15
+        last_pinky_death_record_time = 0.0
         if defense_all_time:
             self.defense_all_time = defense_all_time
         if defense_on_turn1:
             defense_first_round = True
             turn_ocr_bbox = ImageUtils.get_bbox(ImageUtils.load_image("battle/turn_ocr_assets.png"))
+
+        pinky_ryoshu_state = None
+        if pinky_ryoshu_specialization and pinky_ryoshu_selected_count > 1:
+            pinky_ryoshu_state = PinkyRyoshuBattleState(selected_count=pinky_ryoshu_selected_count)
 
         first_turn = True
         start_time = time.time()
@@ -239,6 +271,23 @@ class Battle:
                     return False
                 continue
 
+            if in_mirror and pinky_ryoshu_state is not None:
+                if dead_position := auto.find_element("battle/dead.png"):
+                    if time.time() - last_pinky_death_record_time < 3:
+                        continue
+                    last_pinky_death_record_time = time.time()
+                    dead_notice_text = self._read_death_notice_text(dead_position)
+                    pinky_ryoshu_state.record_death_text(dead_notice_text)
+                    if pinky_ryoshu_state.ryoshu_dead:
+                        log.warning("小指良特化：识别到良秀阵亡，退出本场战斗流程")
+                        return False
+                    log.info(
+                        "小指良特化：非良秀阵亡进度 "
+                        f"{pinky_ryoshu_state.non_ryoshu_deaths}/"
+                        f"{pinky_ryoshu_state.required_non_ryoshu_deaths}"
+                    )
+                    continue
+
             if in_mirror and not cfg.fight_to_last_man:
                 if dead_position := auto.find_element("battle/dead.png"):
                     my_scale = cfg.set_win_size / 1440
@@ -293,14 +342,14 @@ class Battle:
                 except:
                     ocr_result = ""
                 if "turn" in ocr_result:
-                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3)
+                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3, pinky_ryoshu_state)
                     chance = self.INIT_CHANCE
                     waiting = self._update_wait_time(waiting, False, total_count)
                     self.identify_keyword_turn = False
                     continue
             elif fail_count >= 5:
                 if auto.click_element("battle/turn_assets.png") or auto.find_element("battle/win_rate_assets.png"):
-                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3)
+                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3, pinky_ryoshu_state)
                     chance = self.INIT_CHANCE
                     waiting = self._update_wait_time(waiting, False, total_count)
                     continue
@@ -312,6 +361,7 @@ class Battle:
                         first_turn,
                         defense_first_round,
                         avoid_skill_3,
+                        pinky_ryoshu_state,
                     )
                     chance = self.INIT_CHANCE
                     waiting = self._update_wait_time(waiting, False, total_count)
@@ -334,7 +384,7 @@ class Battle:
                     or auto.find_element("battle/win_rate_assets.png")
                     or auto.find_element("battle/win_rate_card.png", threshold=0.75)
                 ):
-                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3)
+                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3, pinky_ryoshu_state)
                     chance = self.INIT_CHANCE
                     waiting = self._update_wait_time(waiting, False, total_count)
                     continue
@@ -342,7 +392,7 @@ class Battle:
                 if not infinite_battle:
                     auto.mouse_to_blank()
                 if auto.find_language_text("胜率", "rate"):
-                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3)
+                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3, pinky_ryoshu_state)
                     chance = self.INIT_CHANCE
                     waiting = self._update_wait_time(waiting, False, total_count)
                     sleep(1)
@@ -351,7 +401,7 @@ class Battle:
                     continue
             if self.mouse_click_rate:
                 if auto.find_element("battle/win_rate_card.png", threshold=0.75):
-                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3)
+                    self._battle_operation(first_turn, defense_first_round, avoid_skill_3, pinky_ryoshu_state)
                     chance = self.INIT_CHANCE
                     waiting = self._update_wait_time(waiting, False, total_count)
 
@@ -493,6 +543,22 @@ class Battle:
             return None
 
     @staticmethod
+    def _read_death_notice_text(dead_position: tuple) -> str:
+        try:
+            scale = cfg.set_win_size / 1440
+            dead_bbox = (
+                dead_position[0] - 240 * scale,
+                dead_position[1] - 170 * scale,
+                dead_position[0] + 240 * scale,
+                dead_position[1] + 60 * scale,
+            )
+            sc = ImageUtils.crop(np.array(auto.screenshot), dead_bbox)
+            result = ocr.run(sc)
+            return "".join(result.txts)
+        except Exception:
+            return ""
+
+    @staticmethod
     def _calculate_skills_position(
         skill_positions: list[list],
         gear_left: tuple,
@@ -579,6 +645,44 @@ class Battle:
 
             auto.key_press("enter")
 
+            sleep(1)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _defense_skill_slot(skill_index: int, move_back: bool = False) -> bool:
+        try:
+            scale = cfg.set_win_size / 1440
+
+            gear_left = auto.find_element("battle/gear_left.png")
+            gear_1 = [gear_left[0] + 100 * scale, gear_left[1] - 35 * scale]
+            gear_right = auto.find_element("battle/gear_right.png")
+            gear_2 = [gear_right[0] - 100 * scale, gear_right[1]]
+
+            bbox = (gear_1[0], gear_1[1] - 15 * scale, gear_2[0], gear_1[1])
+            skill_nums = int((bbox[2] - bbox[0]) / (145 * scale))
+            if skill_nums <= skill_index:
+                return False
+
+            skill_list = []
+            Battle._calculate_skills_position(skill_list, gear_left, skill_nums)
+            selected_skill = skill_list[skill_index]
+
+            auto.mouse_click(selected_skill[0], selected_skill[1])
+            if cfg.simulator:
+                sleep(cfg.mouse_action_interval)
+            else:
+                sleep(cfg.mouse_action_interval // 1.5)
+
+            auto.mouse_drag_link(
+                [
+                    gear_left,
+                    selected_skill,
+                    [gear_right[0] + 5 * skill_nums * scale, gear_right[1] + 150 * scale],
+                ]
+            )
+            auto.mouse_to_blank(move_back=move_back)
             sleep(1)
             return True
         except Exception:

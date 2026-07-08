@@ -96,6 +96,9 @@ class TeamSetting(BaseModel):
     defense_first_round: bool = False
     """第一回合全员防御"""
 
+    pinky_ryoshu_specialization: bool = False
+    """小指良特化"""
+
     fixed_team_use: bool = False
     """固定队伍用途"""
 

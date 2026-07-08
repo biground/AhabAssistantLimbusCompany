@@ -716,6 +716,12 @@ class CustomizeSettingsModule(QFrame):
             None,
             QT_TRANSLATE_NOOP("BaseCheckBox", "链接战第一回合全员防御"),
         )
+        self.pinky_ryoshu_specialization = BaseCheckBox(
+            "pinky_ryoshu_specialization",
+            None,
+            QT_TRANSLATE_NOOP("BaseCheckBox", "小指良特化"),
+            tips=QT_TRANSLATE_NOOP("BaseCheckBox", "需将良秀设为1号位；其余人格请使用蜘蛛巢人格"),
+        )
 
         self.fixed_team_use = CheckBoxWithComboBox(
             "fixed_team_use",
@@ -916,6 +922,7 @@ class CustomizeSettingsModule(QFrame):
         self.features_patch_line_1.addWidget(self.aggressive_also_enhance)
         self.features_patch_line_1.addWidget(self.aggressive_save_systems)
         self.features_patch_line_1.addWidget(self.defense_first_round)
+        self.features_patch_line_1.addWidget(self.pinky_ryoshu_specialization)
 
         self.star_list.addWidget(self.starlight_select_all_wrapper, 0, 0)
         self.star_list.addWidget(self.starlight_clear_button_wrapper, 0, 1)
@@ -1020,6 +1027,7 @@ class CustomizeSettingsModule(QFrame):
         self.aggressive_also_enhance.retranslateUi()
         self.aggressive_save_systems.retranslateUi()
         self.defense_first_round.retranslateUi()
+        self.pinky_ryoshu_specialization.retranslateUi()
         self.fixed_team_use.retranslateUi()
         self.reward_cards.retranslateUi()
         self.re_formation_each_floor.retranslateUi()
